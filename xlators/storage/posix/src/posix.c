@@ -1055,6 +1055,9 @@ posix_mknod (call_frame_t *frame, xlator_t *this,
         struct iatt           preparent = {0,};
         struct iatt           postparent = {0,};
         char                 *parentpath = NULL;
+        mode_t                save_umask  = 0000;
+        mode_t                client_umask = 0000;
+        mode_t                client_mode  = 0000;
 
         DECLARE_OLD_FS_ID_VAR;
 
@@ -1091,7 +1094,23 @@ posix_mknod (call_frame_t *frame, xlator_t *this,
                 goto out;
         }
 
+        op_ret = dict_get_int16 (params, "umask", (int16_t *)&client_umask);
+        if (op_ret == 0) {
+                op_ret = dict_get_int16 (params, "mode", (int16_t *)&client_mode);
+                if (op_ret == 0) {
+                        mode = client_mode;
+                } else {
+                        gf_log (this->name, GF_LOG_ERROR,
+                                "client sent umask, but not the original mode");
+                }
+        } else {
+                // Client did not send umask, see comment in posix_mkdir ().
+                client_umask = 0000;
+        }
+
+        save_umask = umask (client_umask);
         op_ret = mknod (real_path, mode, dev);
+        umask (save_umask);
 
         if (op_ret == -1) {
                 op_errno = errno;
@@ -1329,6 +1348,9 @@ posix_mkdir (call_frame_t *frame, xlator_t *this,
         char                 *parentpath = NULL;
         struct iatt           preparent = {0,};
         struct iatt           postparent = {0,};
+        mode_t                save_umask  = 0000;
+        mode_t                client_umask = 0000;
+        mode_t                client_mode  = 0000;
 
         DECLARE_OLD_FS_ID_VAR;
 
@@ -1371,7 +1393,29 @@ posix_mkdir (call_frame_t *frame, xlator_t *this,
                 goto out;
         }
 
+        op_ret = dict_get_int16 (params, "umask", (int16_t *)&client_umask);
+        if (op_ret == 0) {
+                op_ret = dict_get_int16 (params, "mode", (int16_t *)&client_mode);
+                if (op_ret == 0) {
+                        mode = client_mode;
+                } else {
+                        gf_log (this->name, GF_LOG_ERROR,
+                                "client sent umask, but not the original mode");
+                }
+        } else {
+                // Client did not send umask.
+                // This means it already masked the mode and there's nothing
+                // better we can do, than disable the umask and apply the mode
+                // as it was. What a pity -- mask in extended POSIX ACLs default
+                // will be masked with umask and thus probably stricter than
+                // what user really wanted.
+                client_umask = 0000;
+        }
+
+        save_umask = umask (client_umask);
         op_ret = mkdir (real_path, mode);
+        umask (save_umask);
+
         if (op_ret == -1) {
                 op_errno = errno;
                 gf_log (this->name, GF_LOG_ERROR,
@@ -2037,6 +2081,9 @@ posix_create (call_frame_t *frame, xlator_t *this,
         struct posix_fd *      pfd         = NULL;
         struct posix_private * priv        = NULL;
         char                   was_present = 1;
+        mode_t                save_umask  = 0000;
+        mode_t                client_umask = 0000;
+        mode_t                client_mode  = 0000;
 
         gid_t                  gid         = 0;
         char                  *pathdup   = NULL;
@@ -2097,7 +2144,23 @@ posix_create (call_frame_t *frame, xlator_t *this,
         if (priv->o_direct)
                 _flags |= O_DIRECT;
 
+        op_ret = dict_get_int16 (params, "umask", (int16_t *)&client_umask);
+        if (op_ret == 0) {
+                op_ret = dict_get_int16 (params, "mode", (int16_t *)&client_mode);
+                if (op_ret == 0) {
+                        mode = client_mode;
+                } else {
+                        gf_log (this->name, GF_LOG_ERROR,
+                                "client sent umask, but not the original mode");
+                }
+        } else {
+                // Client did not send umask, see comment in posix_mkdir ().
+                client_umask = 0000;
+        }
+
+        save_umask = umask (client_umask);
         _fd = open (real_path, _flags, mode);
+        umask (save_umask);
 
         if (_fd == -1) {
                 op_errno = errno;
@@ -4358,8 +4421,6 @@ init (xlator_t *this)
                 ret = -1;
                 goto out;
         }
-
-        umask (000); // umask `masking' is done at the client side
 
         /* Check whether the specified directory exists, if not log it. */
         op_ret = stat (dir_data->data, &buf);
