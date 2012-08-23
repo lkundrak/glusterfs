@@ -2766,6 +2766,14 @@ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
         dht_layout_t *layout = 0;
         dht_conf_t   *conf   = NULL;
         xlator_t     *subvol = 0;
+        int           ret    = 0;
+        int32_t       subvol_cnt = 0;
+        dht_fd_ctx_t *fd_ctx = NULL;
+        uint64_t      fd_ctx_int = 0;
+        uint64_t      offset = 0;
+        uint64_t      overflow = 0;
+        gf_boolean_t  overflowed = _gf_false;
+        int           tmp = 0;
 
         INIT_LIST_HEAD (&entries.list);
         prev = cookie;
@@ -2779,6 +2787,8 @@ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
                 local->layout = dht_layout_get (this, local->fd->inode);
 
         layout = local->layout;
+
+        subvol_cnt = dht_subvol_cnt (this, prev->this);
 
         list_for_each_entry (orig_entry, (&orig_entries->list), list) {
                 next_offset = orig_entry->d_off;
@@ -2806,9 +2816,13 @@ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
                         }
                 }
 
+                overflow = 0;
                 dht_itransform (this, prev->this, orig_entry->d_off,
-                                &entry->d_off);
+                                &entry->d_off, &overflow);
 
+                if (overflow)
+                        overflowed = _gf_true;
+                offset = entry->d_off;
                 entry->d_stat = orig_entry->d_stat;
                 entry->d_ino  = orig_entry->d_ino;
                 entry->d_type = orig_entry->d_type;
@@ -2828,6 +2842,14 @@ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
         if (prev->this != dht_last_up_subvol (this))
                 op_errno = 0;
 
+        if (overflowed == _gf_true) {
+                list_for_each_entry (entry, (&entries.list), list) {
+                        tmp++;
+                        if (tmp == count)
+                                break;
+                        entry->d_off |= GF_OFFSET_OVERFLOW_FLAG_MASK;
+                }
+        }
 done:
         if (count == 0) {
                 /* non-zero next_offset means that
@@ -2851,10 +2873,35 @@ done:
         }
 
 unwind:
+        if (!__is_fuse_call (frame)) {
+                if (local->xattr && overflow) {
+                        ret = dict_set_uint64 (local->xattr, GF_READDIR_INDEX,
+                                              overflow);
+                        if (ret)
+                                gf_log (this->name, GF_LOG_ERROR,
+                                        "Dict set failed");
+                }
+        } else {
+                ret = fd_ctx_get (local->fd, this,
+                                    (uint64_t*)&fd_ctx_int);
+                if (!ret && fd_ctx_int)
+                        fd_ctx = (dht_fd_ctx_t *) fd_ctx_int;
+                else
+                        goto out;
+                LOCK (&local->fd->lock);
+                {
+                        fd_ctx->subvol_cnt = subvol_cnt;
+                        fd_ctx->offset = offset;
+                        fd_ctx->overflow = overflow;
+                }
+                UNLOCK (&local->fd->lock);
+        }
+out:
         if (op_ret < 0)
                 op_ret = 0;
 
-        DHT_STACK_UNWIND (readdirp, frame, op_ret, op_errno, &entries, NULL);
+        DHT_STACK_UNWIND (readdirp, frame, op_ret, op_errno, &entries,
+                          local->xattr);
 
         gf_dirent_free (&entries);
 
@@ -2878,6 +2925,14 @@ dht_readdir_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
         int           count = 0;
         dht_layout_t *layout = 0;
         xlator_t     *subvol = 0;
+        int           subvol_cnt = 0;
+        int           ret = 0;
+        dht_fd_ctx_t *fd_ctx = NULL;
+        uint64_t      fd_ctx_int = 0;
+        uint64_t      offset = 0;
+        uint64_t      overflow = 0;
+        gf_boolean_t  overflowed = _gf_false;
+        int           tmp = 0;
 
         INIT_LIST_HEAD (&entries.list);
         prev = cookie;
@@ -2891,6 +2946,8 @@ dht_readdir_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
 
         layout = local->layout;
 
+        subvol_cnt = dht_subvol_cnt (this, prev->this);
+
         list_for_each_entry (orig_entry, (&orig_entries->list), list) {
                 next_offset = orig_entry->d_off;
 
@@ -2903,10 +2960,13 @@ dht_readdir_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
                                         "memory allocation failed :(");
                                 goto unwind;
                         }
+                        overflow = 0;
 
                         dht_itransform (this, prev->this, orig_entry->d_off,
-                                        &entry->d_off);
-
+                                        &entry->d_off, &overflow);
+                        if (overflow)
+                                overflowed = _gf_true;
+                        offset = entry->d_off;
                         entry->d_ino  = orig_entry->d_ino;
                         entry->d_type = orig_entry->d_type;
                         entry->d_len  = orig_entry->d_len;
@@ -2925,7 +2985,14 @@ dht_readdir_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
          */
         if (prev->this != dht_last_up_subvol (this))
                 op_errno = 0;
-
+        if (overflowed == _gf_true) {
+                list_for_each_entry (entry, (&entries.list), list) {
+                        tmp++;
+                        if (tmp == count)
+                                break;
+                        entry->d_off |= 0x8000000000000000;
+                }
+        }
 done:
         if (count == 0) {
                 /* non-zero next_offset means that
@@ -2943,15 +3010,39 @@ done:
 
                 STACK_WIND (frame, dht_readdir_cbk,
                             next_subvol, next_subvol->fops->readdir,
-                            local->fd, local->size, next_offset, NULL);
+                            local->fd, local->size, next_offset, local->xattr);
                 return 0;
         }
 
 unwind:
+        if (!__is_fuse_call (frame)) {
+                if (local->xattr && overflow) {
+                        ret = dict_set_uint64 (local->xattr, GF_READDIR_INDEX,
+                                              overflow);
+                        if (ret)
+                                gf_log (this->name, GF_LOG_ERROR,
+                                        "Dict set failed");
+                }
+        } else {
+                ret = fd_ctx_get (local->fd, this,
+                                    (uint64_t*)&fd_ctx_int);
+                if (!ret && fd_ctx_int)
+                        fd_ctx = (dht_fd_ctx_t *) fd_ctx_int;
+                else
+                        goto out;
+                LOCK (&local->fd->lock);
+                {
+                        fd_ctx->subvol_cnt = subvol_cnt;
+                        fd_ctx->offset = offset;
+                }
+                UNLOCK (&local->fd->lock);
+        }
+out:
         if (op_ret < 0)
                 op_ret = 0;
 
-        DHT_STACK_UNWIND (readdir, frame, op_ret, op_errno, &entries, NULL);
+        DHT_STACK_UNWIND (readdir, frame, op_ret, op_errno, &entries,
+                          local->xattr);
 
         gf_dirent_free (&entries);
 
@@ -2968,6 +3059,12 @@ dht_do_readdir (call_frame_t *frame, xlator_t *this, fd_t *fd, size_t size,
         xlator_t     *xvol = NULL;
         off_t         xoff = 0;
         int           ret = 0;
+        uint64_t      overflow = 0;
+        uint64_t      fd_ctx_int = 0;
+        dht_conf_t   *conf = NULL;
+        dht_fd_ctx_t *fd_ctx = NULL;
+        uint64_t      last_offset = 0;
+        int32_t       subvol_cnt = 0;
 
         VALIDATE_OR_GOTO (frame, err);
         VALIDATE_OR_GOTO (this, err);
@@ -2979,12 +3076,63 @@ dht_do_readdir (call_frame_t *frame, xlator_t *this, fd_t *fd, size_t size,
                 goto err;
         }
 
+        conf = this->private;
+
         local->fd = fd_ref (fd);
         local->size = size;
         local->xattr_req = (dict)? dict_ref (dict) : NULL;
 
-        dht_deitransform (this, yoff, &xvol, (uint64_t *)&xoff);
+        if (!__is_fuse_call (frame)) {
+                if (dict) {
+                        ret = dict_get_uint64 (dict, GF_READDIR_INDEX,
+                                               &overflow);
+                        if (ret) {
+                                gf_log (this->name, GF_LOG_TRACE, "%s "
+                                        "key not present in dict",
+                                         GF_READDIR_INDEX);
+                        }
+                }
+        } else {
+                ret = fd_ctx_get (local->fd, this, &fd_ctx_int);
+                if (ret) {
+                        fd_ctx = GF_CALLOC (1, sizeof (*fd_ctx),
+                                            gf_dht_mt_fd_ctx);
+                        if (!fd_ctx) {
+                                gf_log (this->name, GF_LOG_TRACE,
+                                        "calloc for fd_ctx failed");
+                                goto err;
+                        }
+                        fd_ctx->overflow = 0;
+                        fd_ctx->offset = yoff;
+                        fd_ctx->subvol_cnt = 0;
+                        ret = fd_ctx_set (local->fd, this, (uint64_t) fd_ctx);
+                        if (ret) {
+                                gf_log (this->name, GF_LOG_ERROR,
+                                        "fd_ctx_set failed");
+                                goto err;
+                        }
+                } else {
+                        fd_ctx = (dht_fd_ctx_t *) fd_ctx_int;
+                }
 
+                overflow = fd_ctx->overflow;
+                last_offset = fd_ctx->offset;
+        }
+
+        subvol_cnt = dht_deitransform (this, yoff, &xvol, (uint64_t *)&xoff,
+                                        overflow);
+        /* if offset has changed between requests, then seekdir
+           * in play rewind to 0 */
+        if (!__is_fuse_call (frame)) {
+                if (yoff & 0x8000000000000000) {
+                        subvol_cnt = 0;
+                        xoff = 0;
+                }
+        } else if ((last_offset != xoff) ||
+                   (subvol_cnt != fd_ctx->subvol_cnt)) {
+                yoff = 0;
+                subvol_cnt = 0;
+        }
         /* TODO: do proper readdir */
         if (whichop == GF_FOP_READDIRP) {
                 if (dict)

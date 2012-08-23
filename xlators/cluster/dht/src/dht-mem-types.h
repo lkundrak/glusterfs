@@ -28,6 +28,7 @@ enum gf_dht_mem_types_ {
         gf_dht_mt_subvol_time,
         gf_dht_mt_loc_t,
         gf_defrag_info_mt,
+        gf_dht_mt_fd_ctx,
         gf_dht_mt_end
 };
 #endif

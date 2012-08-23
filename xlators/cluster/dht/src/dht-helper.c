@@ -18,7 +18,6 @@
 #include "xlator.h"
 #include "dht-common.h"
 
-
 int
 dht_frame_return (call_frame_t *frame)
 {
@@ -39,14 +38,16 @@ dht_frame_return (call_frame_t *frame)
         return this_call_cnt;
 }
 
-
 int
-dht_itransform (xlator_t *this, xlator_t *subvol, uint64_t x, uint64_t *y_p)
+dht_itransform (xlator_t *this, xlator_t *subvol, uint64_t x, uint64_t *y_p,
+                uint64_t *overflow)
 {
         dht_conf_t *conf = NULL;
         int         cnt = 0;
         int         max = 0;
         uint64_t    y = 0;
+        uint64_t    num_bits = 0;
+        uint64_t    overflow_tmp = 0;
 
         if (x == ((uint64_t) -1)) {
                 y = (uint64_t) -1;
@@ -57,14 +58,25 @@ dht_itransform (xlator_t *this, xlator_t *subvol, uint64_t x, uint64_t *y_p)
         if (!conf)
                 goto out;
 
+        y = x;
+
         max = conf->subvolume_cnt;
         cnt = dht_subvol_cnt (this, subvol);
 
-        y = ((x * max) + cnt);
+        num_bits = gf_get_num_bits (max);
+
+        y = y << num_bits;
+        y += cnt;
+
+        overflow_tmp = (x >> (63 - num_bits));
+
+        y &= GF_OFFSET_BIT_MASK;
 
 out:
         if (y_p)
                 *y_p = y;
+        if (overflow)
+                *overflow = overflow_tmp;
 
         return 0;
 }
@@ -130,23 +142,40 @@ out:
 
 int
 dht_deitransform (xlator_t *this, uint64_t y, xlator_t **subvol_p,
-                  uint64_t *x_p)
+                  uint64_t *x_p, uint64_t overflow)
 {
         dht_conf_t *conf = NULL;
         int         cnt = 0;
         int         max = 0;
         uint64_t    x = 0;
         xlator_t   *subvol = 0;
+        uint64_t    tmp = 0;
+        int32_t     pwr_two = 0;
+        int32_t     num_bits = 0;
 
         if (!this->private)
                 goto out;
 
         conf = this->private;
         max = conf->subvolume_cnt;
+        pwr_two = gf_roundup_power_of_two (max);
+        num_bits = gf_get_num_bits (max);
 
-        cnt = y % max;
-        x   = y / max;
+        if (!overflow && !y)
+                goto done;
 
+        cnt = y % pwr_two;
+
+        overflow &= GF_OFFSET_OVERFLOW_BIT_MASK;
+
+        tmp = overflow << (63 - num_bits);
+
+        y &= GF_OFFSET_BIT_MASK;
+        x = y >> num_bits;
+
+        x += tmp;
+
+done:
         subvol = conf->subvolumes[cnt];
 
         if (subvol_p)
@@ -156,7 +185,7 @@ dht_deitransform (xlator_t *this, uint64_t y, xlator_t **subvol_p,
                 *x_p = x;
 
 out:
-        return 0;
+        return cnt;
 }
 
 

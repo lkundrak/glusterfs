@@ -1894,6 +1894,28 @@ out:
         return result;
 }
 
+
+inline int32_t
+gf_get_num_bits (uint32_t nr)
+{
+        uint32_t result = 1;
+        uint32_t num_bits = 1;
+
+        if (nr < 0) {
+                gf_log ("common-utils", GF_LOG_WARNING,
+                        "negative number passed");
+                result = -1;
+                goto out;
+        }
+
+        while (result < nr) {
+                result *= 2;
+                num_bits++;
+        }
+
+out:
+        return num_bits;
+}
 /*
  * rounds up nr to next power of two. If nr is already a power of two, next
  * power of two is returned.

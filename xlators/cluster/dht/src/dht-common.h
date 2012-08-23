@@ -24,7 +24,9 @@
 #define GF_DHT_LOOKUP_UNHASHED_ON   1
 #define GF_DHT_LOOKUP_UNHASHED_AUTO 2
 #define DHT_PATHINFO_HEADER         "DISTRIBUTE:"
-
+#define GF_OFFSET_BIT_MASK 0x7fffffffffffffffU
+#define GF_OFFSET_OVERFLOW_BIT_MASK 0x00000000ffffffffU
+#define GF_OFFSET_OVERFLOW_FLAG_MASK 0x8000000000000000U
 #include <fnmatch.h>
 
 typedef int (*dht_selfheal_dir_cbk_t) (call_frame_t *frame, void *cookie,
@@ -267,6 +269,14 @@ typedef enum {
         GF_DHT_MIGRATE_HARDLINK_IN_PROGRESS
 } gf_dht_migrate_data_type_t;
 
+struct dht_fd_ctx {
+        uint64_t offset;
+        uint64_t overflow;
+        int32_t  subvol_cnt;
+};
+
+typedef struct dht_fd_ctx dht_fd_ctx_t;
+
 #define ENTRY_MISSING(op_ret, op_errno) (op_ret == -1 && op_errno == ENOENT)
 
 #define is_revalidate(loc) (inode_ctx_get (loc->inode, this, NULL) == 0)
@@ -357,9 +367,10 @@ int dht_disk_layout_merge (xlator_t   *this, dht_layout_t *layout,
 
 int dht_frame_return (call_frame_t *frame);
 
-int                             dht_itransform (xlator_t *this, xlator_t *subvol, uint64_t x, uint64_t *y);
+int dht_itransform (xlator_t *this, xlator_t *subvol, uint64_t x, uint64_t *y,
+                    uint64_t *overflow);
 int dht_deitransform (xlator_t *this, uint64_t y, xlator_t **subvol,
-                      uint64_t *x);
+                      uint64_t *x, uint64_t overflow);
 
 void dht_local_wipe (xlator_t *this, dht_local_t *local);
 dht_local_t *dht_local_init (call_frame_t    *frame, loc_t *loc, fd_t *fd,

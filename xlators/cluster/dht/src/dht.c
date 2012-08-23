@@ -489,6 +489,25 @@ err:
 }
 
 
+int32_t
+dht_releasedir (xlator_t *this, fd_t *fd)
+{
+        uint64_t        fd_ctx_int = 0;
+        dht_fd_ctx_t   *fd_ctx = NULL;
+        int             ret = -1;
+
+        if (!this || !fd)
+                return ret;
+
+        ret = fd_ctx_del (fd, this, &fd_ctx_int);
+        if (ret)
+                return 0;
+        fd_ctx = (dht_fd_ctx_t*) fd_ctx_int;
+
+        GF_FREE (fd_ctx);
+
+        return 0;
+}
 struct xlator_fops fops = {
         .lookup      = dht_lookup,
         .mknod       = dht_mknod,
@@ -545,7 +564,7 @@ struct xlator_dumpops dumpops = {
 
 struct xlator_cbks cbks = {
 //      .release    = dht_release,
-//      .releasedir = dht_releasedir,
+        .releasedir = dht_releasedir,
         .forget     = dht_forget
 };
 
