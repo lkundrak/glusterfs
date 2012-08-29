@@ -262,6 +262,9 @@ main ()
                     "worm")     worm=1 ;;
                     # "mount -t glusterfs" sends this, but it's useless.
                     "rw")       ;;
+                    # these ones are interpreted during system initialization
+                    "noauto")   ;;
+                    "_netdev")  ;;
                     *)
                         read key value < <(echo "$pair" | tr "=" " ")
                         # Handle options with values.
