@@ -189,6 +189,8 @@ static struct argp_option gf_options[] = {
          "Enable strict volume file checking"},
         {"mem-accounting", ARGP_MEM_ACCOUNTING_KEY, 0, OPTION_HIDDEN,
          "Enable internal memory accounting"},
+        {"fuse-mountopts", ARGP_FUSE_MOUNTOPTS_KEY, "OPTIONS", OPTION_HIDDEN,
+         "Extra mount options to pass to FUSE"},
         {0, 0, 0, 0, "Miscellaneous Options:"},
         {0, }
 };
@@ -402,6 +404,17 @@ create_fuse_mount (glusterfs_ctx_t *ctx)
                 if (ret < 0) {
                         gf_log ("glusterfsd", GF_LOG_ERROR,
                                 "failed to set dict value for key sync-mtab");
+                        goto err;
+                }
+        }
+
+        if (cmd_args->fuse_mountopts) {
+                ret = dict_set_static_ptr (master->options, ZR_FUSE_MOUNTOPTS,
+                                           cmd_args->fuse_mountopts);
+                if (ret < 0) {
+                        gf_log ("glusterfsd", GF_LOG_ERROR,
+                                "failed to set dict value for key %s",
+                                ZR_FUSE_MOUNTOPTS);
                         goto err;
                 }
         }
@@ -809,6 +822,8 @@ parse_opts (int key, char *arg, struct argp_state *state)
                 /* TODO: it should have got handled much earlier */
                 ctx = glusterfs_ctx_get ();
                 ctx->mem_accounting = 1;
+        case ARGP_FUSE_MOUNTOPTS_KEY:
+                cmd_args->fuse_mountopts = gf_strdup (arg);
                 break;
         }
 

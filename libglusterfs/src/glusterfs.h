@@ -69,6 +69,7 @@
 #define ZR_DIRECT_IO_OPT        "direct-io-mode"
 #define ZR_STRICT_VOLFILE_CHECK "strict-volfile-check"
 #define ZR_DUMP_FUSE            "dump-fuse"
+#define ZR_FUSE_MOUNTOPTS       "fuse-mountopts"
 
 #define GF_XATTR_CLRLK_CMD      "glusterfs.clrlk"
 #define GF_XATTR_PATHINFO_KEY   "trusted.glusterfs.pathinfo"
@@ -305,7 +306,7 @@ struct _cmd_args {
         pid_t            client_pid;
         int              client_pid_set;
         unsigned         uid_map_root;
-
+        char            *fuse_mountopts;
 
 	/* key args */
 	char            *mount_point;

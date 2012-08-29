@@ -125,6 +125,10 @@ start_glusterfs ()
         cmd_line=$(echo "$cmd_line --volfile=$volfile_loc");
     fi
 
+    if [ -n "$fuse_mountopts" ]; then
+	cmd_line=$(echo "$cmd_line --fuse-mountopts=$fuse_mountopts");
+    fi
+
     cmd_line=$(echo "$cmd_line $mount_point");
     err=0;
     $cmd_line;
@@ -274,7 +278,11 @@ main ()
                                 volfile_max_fetch_attempts=$value ;;
                             "backupvolfile-server")
                                 backupvolfile_server=$value ;;
-                            *) echo "unknown option $key (ignored)" ;;
+                            "fuse-mountopts")   fuse_mountopts=$value ;;
+                            *)
+                                # Passthru
+                                [ -z "$fuse_mountopts" ] || fuse_mountopts="$fuse_mountopts,"
+                                fuse_mountopts="$fuse_mountopts$pair"
                         esac
                 esac
             done
@@ -343,4 +351,3 @@ main ()
 }
 
 _init "$@" && main "$@";
-

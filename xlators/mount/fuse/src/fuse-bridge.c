@@ -4535,6 +4535,8 @@ init (xlator_t *this_xl)
                 GF_ASSERT (ret == 0);
         }
 
+        dict_get_str (options, "fuse-mountopts", &priv->fuse_mountopts);
+
         cmd_args = &this_xl->ctx->cmd_args;
         fsname = cmd_args->volfile;
         if (!fsname && cmd_args->volfile_server) {
@@ -4564,9 +4566,11 @@ init (xlator_t *this_xl)
                 goto cleanup_exit;
         }
 
-        gf_asprintf (&mnt_args, "%s%sallow_other,max_read=131072",
+        gf_asprintf (&mnt_args, "%s%s%s%sallow_other,max_read=131072",
                      priv->read_only ? "ro," : "",
-                     priv->acl ? "" : "default_permissions,");
+                     priv->acl ? "" : "default_permissions,",
+                     priv->fuse_mountopts ? priv->fuse_mountopts : "",
+                     priv->fuse_mountopts ? "," : "");
         if (!mnt_args)
                 goto cleanup_exit;
 
@@ -4694,6 +4698,9 @@ struct volume_options options[] = {
         },
         { .key = {"read-only"},
           .type = GF_OPTION_TYPE_BOOL
+        },
+        { .key = {"fuse-mountopts"},
+          .type = GF_OPTION_TYPE_STR
         },
         { .key = {NULL} },
 };

@@ -115,6 +115,7 @@ struct fuse_private {
         int                  revchan_in;
         int                  revchan_out;
         gf_boolean_t         reverse_fuse_thread_started;
+        char                *fuse_mountopts;
 
         /* For communicating with separate mount thread. */
         int                  status_pipe[2];
