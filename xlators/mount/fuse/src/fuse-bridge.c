@@ -956,6 +956,7 @@ fuse_setattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
                 op_done = 1;
         }
 
+        fuse_invalidate_entry (this, finh->nodeid);
         if (op_done) {
                 free_fuse_state (state);
         }
